@@ -7,7 +7,7 @@ import math
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=520):
         """
-        可学习的正弦位置编码。
+        正弦位置编码。
 
         参数：
         - d_model: 模型的维度
@@ -63,7 +63,6 @@ class WiFiTransformerAutoencoder(nn.Module):
         )
 
         # 解码器：重构输入序列
-        self.decoder_embedding = nn.Linear(model_dim, model_dim)  # 可选：可添加更多层
         decoder_layer = nn.TransformerDecoderLayer(
             d_model=model_dim, nhead=num_heads, dropout=dropout, batch_first=True
         )
@@ -73,6 +72,20 @@ class WiFiTransformerAutoencoder(nn.Module):
         self.decoder_output = nn.Linear(model_dim, 1)  # 重构原始1个特征
 
         self.activation = nn.ReLU()  # 保持 ReLU 激活函数
+
+        # 回归头：用于预测经度和纬度
+        self.regression_head = nn.Sequential(
+            nn.Linear(model_dim * input_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, 2)  # 输出经度和纬度
+        )
+
+        # 分类头：用于预测楼层
+        self.classification_head = nn.Sequential(
+            nn.Linear(model_dim * input_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, 5)  # 假设楼层数为 5，可根据实际情况调整
+        )
 
     def encode(self, x):
         """
@@ -117,8 +130,34 @@ class WiFiTransformerAutoencoder(nn.Module):
         - x: 输入张量，形状为 [batch_size, input_dim]
 
         返回：
-        - x: 重构后的输入，形状为 [batch_size, input_dim]
+        - reconstructed: 重构后的输入，形状为 [batch_size, input_dim]
+        - regression_output: 回归预测，形状为 [batch_size, 2]
+        - classification_output: 分类预测，形状为 [batch_size, num_classes]
         """
         memory = self.encode(x)
-        decoded = self.decode(memory)
-        return decoded
+        reconstructed = self.decode(memory)
+
+        # 将编码器的输出展平成 [batch_size, input_dim * model_dim]
+        memory_flat = memory.view(memory.size(0), -1)
+
+        # 回归预测
+        regression_output = self.regression_head(memory_flat)
+
+        # 分类预测
+        classification_output = self.classification_head(memory_flat)
+
+        return reconstructed, regression_output, classification_output
+
+    def extract_features(self, x):
+        """
+        提取编码器的特征。
+
+        参数：
+        - x: 输入张量，形状为 [batch_size, input_dim]
+
+        返回：
+        - features: 提取的特征，形状为 [batch_size, input_dim * model_dim]
+        """
+        memory = self.encode(x)
+        features = memory.view(memory.size(0), -1)
+        return features
